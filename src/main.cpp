@@ -85,9 +85,9 @@ u16 I;
 u16 pc;
 
 // Delay timer is intended for timing the events of games. Can be set and read.
-u8 delaytimer = 60;
+u8 delaytimer = 0;
 // Sound effects. A beeping sound is made when value is non-zero.
-u8 soundtimer = 60;
+u8 soundtimer = 0;
 
 // 16 input keys
 u8 key[16];
@@ -512,7 +512,14 @@ void runEmulator(int programSize)
     while(1) {
         fmt::print("{0:0>4x} - ", pc);
         pc += executeOpcode();
-        usleep(1000 * 500);   // microseconds!
+        usleep(1000 * 100);   // microseconds!
+
+        // these should decrement at 60Hz (60 times per second I guess?)
+        if(delaytimer > 0)
+            delaytimer--;
+        if(soundtimer > 0)
+            soundtimer--;
+
         if (pc > 0x200 + programSize)
             return;
     }
