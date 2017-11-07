@@ -121,22 +121,22 @@ void decodeOpcode(u16 op)
             fmt::print("1{0:X}: Jump to address {0:#x}", bits.t.b);
             break;
         case 2:
-            fmt::print("2{0:X}: Call subroutine at address {0:#x}", bits.t.b);
+            fmt::print("2{0:0>3X}: Call subroutine at address {0:0>3x}", bits.t.b);
             break;
         case 3:
-            fmt::print("3{0:X}{1:X}: Skip next instruction if V{0:X} == {1:X}", bits.n.b, bits.b.b);
+            fmt::print("3{0:X}{1:0>2X}: Skip next instruction if V{0:X} == {1:X}", bits.n.b, bits.b.b);
             break;
         case 4:
-            fmt::print("4{0:X}{1:X}: Skip next instruction if V{0:X} != {1:X}", bits.n.b, bits.b.b);
+            fmt::print("4{0:X}{1:0>2X}: Skip next instruction if V{0:X} != {1:X}", bits.n.b, bits.b.b);
             break;
         case 5:
             fmt::print("5{0:X}{1:X}0: Skip next instruction if V{0:X} == V{1:X}", bits.n.b, bits.n.c);
             break;
         case 6:
-            fmt::print("6{0:X}{1:X}: V{0:X} = {1:X}", bits.n.b, bits.b.b);
+            fmt::print("6{0:X}{1:0>2X}: V{0:X} = {1:X}", bits.n.b, bits.b.b);
             break;
         case 7:
-            fmt::print("7{0:X}{1:X}: V{0:X} += {1:X}", bits.n.b, bits.b.b);
+            fmt::print("7{0:X}{1:0>2X}: V{0:X} += {1:X}", bits.n.b, bits.b.b);
             break;
         case 8:
             switch(bits.n.d) {
@@ -175,16 +175,17 @@ void decodeOpcode(u16 op)
             fmt::print("9{0:X}{1:X}0: Skip next instruction if V{0:X} != V{1:X}", bits.n.b, bits.n.c);
             break;
         case 0xA:
-            fmt::print("A{0:X}: Set I to the address {0:X}", bits.t.b);
+            fmt::print("A{0:0>3X}: Set I to the address {0:X}", bits.t.b);
             break;
         case 0xB:
-            fmt::print("B{0:X}: PC = V0 + {0:X} (jump to address {0:X} + V0)", bits.t.b);
+            fmt::print("B{0:0>3X}: PC = V0 + {0:X} (jump to address {0:X} + V0)", bits.t.b);
             break;
         case 0xC:
-            fmt::print("C{0:X}{1:X}: V{0:X} = rand() & {1:X} (Set V{0:X} to result of a bitwise AND operation on a random number and {1:X}.)", bits.n.b, bits.b.b);
+            fmt::print("C{0:X}{1:0>2X}: V{0:X} = rand() & {1:X} (Set V{0:X} to result of a bitwise AND operation on a random number and {1:X}.)", bits.n.b, bits.b.b);
             break;
         case 0xD:
             fmt::print("D{0:X}{1:X}{2:X}: Draw sprite at V{0:X},V{1:X} with height {2:X} pixels.", bits.n.b, bits.n.c, bits.n.d);
+            break;
         case 0xE:
             if(bits.b.b == 0x9E) {
                 fmt::print("E{0:X}9E: Skip next instruction if key stored in V{0:X} is pressed.", bits.n.b);
@@ -234,11 +235,8 @@ void decodeOpcode(u16 op)
     fmt::print("\n");
 }
 
-int main()
+void testOpcodes()
 {
-    fmt::print("\n\n    CHIPATE \n\n");
-
-    fmt::print("[decoding opcodes]\n\n");
     decodeOpcode(0x0420);
     decodeOpcode(0x00E0);
     decodeOpcode(0x00EE);
@@ -275,6 +273,48 @@ int main()
     decodeOpcode(0xF855);
     decodeOpcode(0xF866);
 
+}
+
+void dumpProgram(int start, int length)
+{
+    u16 opcode = 0;
+    for(int i = 0; i < length; i+=2) {
+        opcode = (ram[start + i] << 8) | ram[start + i + 1];
+        decodeOpcode(opcode);
+    }
+}
+
+int main(int argc, char *argv[])
+{
+    FILE *f;
+    int filesize = 0;
+
+    fmt::print("\n\n    CHIPATE \n\n");
+
+    fmt::print("[loading file...]\n\n");
+    if (argc > 1) {
+        f = fopen(argv[1], "rb");
+        fseek(f, 0L, SEEK_END);
+        filesize = ftell(f);
+        fseek(f, 0L, SEEK_SET);
+        fread(&ram[0x200], filesize, 1, f);
+    } else {
+        fmt::print("syntax: chipate FILENAME\n");
+        return 0;
+    }
+
+    fmt::print("[decoding opcodes]\n\n");
+    
+    //testOpcodes();
+    
+    dumpProgram(0x200, filesize);
+
+    
     fmt::print("\n[finished]\n");
     return 0;
 }
+
+
+
+
+// vim: fdm=syntax
