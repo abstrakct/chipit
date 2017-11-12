@@ -26,10 +26,15 @@ typedef int64_t  i64;
 
 // SFML
 sf::RenderWindow window;
+sf::RenderTexture tex;
 const int pixelWidth = 8;
 const int pixelHeight = 8;
 const int screenWidth = 64 * pixelWidth;
 const int screenHeight = 32 * pixelHeight;
+
+// Some flags
+bool verbose = false;
+bool dirtyDisplay = true;
 
 struct OpcodeNibbles {
     u16 d : 4;
@@ -333,7 +338,7 @@ int executeOpcode()
     bits.opcode = (ram[pc] << 8) | ram[pc+1];
 
     if(bits.b.a == 0 && bits.b.b == 0) {
-        fmt::print("{0:0>2X}{1:0>2X}\n", bits.b.a, bits.b.b);
+        if (verbose) fmt::print("{0:0>2X}{1:0>2X}\n", bits.b.a, bits.b.b);
         return 2;
     }
 
@@ -341,78 +346,79 @@ int executeOpcode()
         case 0:
             if(bits.n.b == 0) {
                 if(bits.b.b == 0xE0) {       // Clear the screen
-                    fmt::print("00E0: Clear the screen");
-                    memset(pixels, 0, 64*32);
+                    if (verbose) fmt::print("00E0: Clear the screen");
+                    memset(pixels, 0, 64*32*sizeof(u8));
+                    window.clear(sf::Color::Black);
                 }
                 if(bits.b.b == 0xEE) {       // Return from subroutine
-                    fmt::print("00EE: Return from subroutine");
+                    if (verbose) fmt::print("00EE: Return from subroutine");
                     pc = stack[stackptr];
                     stackptr--;
                     //stack[stackptr] = 0;  // correct? necessary?
                 }
             } else {
-                fmt::print("0{0:0>3X}: Call RCA 1802 program at address {0:0>3X}", bits.t.b);
+                fmt::print("0{0:0>3X}: Call RCA 1802 program at address {0:0>3X} NOT IMPLEMENTED\n", bits.t.b);
             }
             break;
         case 1:
-            fmt::print("1{0:X}: Jump to address {0:#x}", bits.t.b);
+            if (verbose) fmt::print("1{0:X}: Jump to address {0:#x}", bits.t.b);
             pc = bits.t.b;
-            fmt::print("\n");
+            if (verbose) fmt::print("\n");
             return 0;
             break;
         case 2:
-            fmt::print("2{0:0>3X}: Call subroutine at address {0:0>3x}", bits.t.b);
+            if (verbose) fmt::print("2{0:0>3X}: Call subroutine at address {0:0>3x}", bits.t.b);
             // Push current PC to the stack
             stackptr++;
             stack[stackptr] = pc;
             // Jump to subroutine
             pc = bits.t.b;
-            fmt::print("\n");
+            if (verbose) fmt::print("\n");
             return 0;
             break;
         case 3:
-            fmt::print("3{0:X}{1:0>2X}: Skip next instruction if V{0:X} == {1:X}", bits.n.b, bits.b.b);
+            if (verbose) fmt::print("3{0:X}{1:0>2X}: Skip next instruction if V{0:X} == {1:X}", bits.n.b, bits.b.b);
             if (v[bits.n.b] == bits.b.b)
                 pc += 2;
             break;
         case 4:
-            fmt::print("4{0:X}{1:0>2X}: Skip next instruction if V{0:X} != {1:X}", bits.n.b, bits.b.b);
+            if (verbose) fmt::print("4{0:X}{1:0>2X}: Skip next instruction if V{0:X} != {1:X}", bits.n.b, bits.b.b);
             if (v[bits.n.b] != bits.b.b)
                 pc += 2;
             break;
         case 5:
-            fmt::print("5{0:X}{1:X}0: Skip next instruction if V{0:X} == V{1:X}", bits.n.b, bits.n.c);
+            if (verbose) fmt::print("5{0:X}{1:X}0: Skip next instruction if V{0:X} == V{1:X}", bits.n.b, bits.n.c);
             if (v[bits.n.b] == v[bits.b.b])
                 pc += 2;
             break;
         case 6:
-            fmt::print("6{0:X}{1:0>2X}: V{0:X} = {1:X}", bits.n.b, bits.b.b);
+            if (verbose) fmt::print("6{0:X}{1:0>2X}: V{0:X} = {1:X}", bits.n.b, bits.b.b);
             v[bits.n.b] = bits.b.b;
             break;
         case 7:
-            fmt::print("7{0:X}{1:0>2X}: V{0:X} += {1:X}", bits.n.b, bits.b.b);
+            if (verbose) fmt::print("7{0:X}{1:0>2X}: V{0:X} += {1:X}", bits.n.b, bits.b.b);
             v[bits.n.b] += bits.b.b;
             break;
         case 8:
             switch(bits.n.d) {
                 case 0x0:
-                    fmt::print("8{0:X}{1:X}0: V{0:X} = V{1:X}", bits.n.b, bits.n.c);
+                    if (verbose) fmt::print("8{0:X}{1:X}0: V{0:X} = V{1:X}", bits.n.b, bits.n.c);
                     v[bits.n.b] = v[bits.n.c];
                     break; 
                 case 0x1:
-                    fmt::print("8{0:X}{1:X}1: V{0:X} = V{0:X} OR V{1:X} (bitwise OR)", bits.n.b, bits.n.c);
+                    if (verbose) fmt::print("8{0:X}{1:X}1: V{0:X} = V{0:X} OR V{1:X} (bitwise OR)", bits.n.b, bits.n.c);
                     v[bits.n.b] |= v[bits.n.c];
                     break; 
                 case 0x2:
-                    fmt::print("8{0:X}{1:X}2: V{0:X} = V{0:X} AND V{1:X} (bitwise AND)", bits.n.b, bits.n.c);
+                    if (verbose) fmt::print("8{0:X}{1:X}2: V{0:X} = V{0:X} AND V{1:X} (bitwise AND)", bits.n.b, bits.n.c);
                     v[bits.n.b] &= v[bits.n.c];
                     break; 
                 case 0x3:
-                    fmt::print("8{0:X}{1:X}3: V{0:X} = V{0:X} XOR V{1:X} (bitwise XOR)", bits.n.b, bits.n.c);
+                    if (verbose) fmt::print("8{0:X}{1:X}3: V{0:X} = V{0:X} XOR V{1:X} (bitwise XOR)", bits.n.b, bits.n.c);
                     v[bits.n.b] ^= v[bits.n.c];
                     break; 
                 case 0x4:
-                    fmt::print("8{0:X}{1:X}4: V{0:X} += V{1:X} - VF set to 1 when there's a carry.", bits.n.b, bits.n.c);
+                    if (verbose) fmt::print("8{0:X}{1:X}4: V{0:X} += V{1:X} - VF set to 1 when there's a carry.", bits.n.b, bits.n.c);
                     if ((v[bits.n.b] + v[bits.n.c]) > 0xFF)
                         VF = 1;
                     else
@@ -420,7 +426,7 @@ int executeOpcode()
                     v[bits.n.b] += v[bits.n.c];
                     break; 
                 case 0x5:
-                    fmt::print("8{0:X}{1:X}5: V{0:X} -= V{1:X} - VF set to 0 when there's a borrow, 1 if not.", bits.n.b, bits.n.c);
+                    if (verbose) fmt::print("8{0:X}{1:X}5: V{0:X} -= V{1:X} - VF set to 0 when there's a borrow, 1 if not.", bits.n.b, bits.n.c);
                     if (v[bits.n.b] > v[bits.n.c])
                         VF = 1;
                     else
@@ -428,7 +434,7 @@ int executeOpcode()
                     v[bits.n.b] -= v[bits.n.c];
                     break; 
                 case 0x6:
-                    fmt::print("8{0:X}{1:X}6: V{0:X} >>= 1. VF is set to the value of the LSB of V{0:X} before the shift.", bits.n.b, bits.n.c);
+                    if (verbose) fmt::print("8{0:X}{1:X}6: V{0:X} >>= 1. VF is set to the value of the LSB of V{0:X} before the shift.", bits.n.b, bits.n.c);
                     if (v[bits.n.b] & 1)
                         VF = 1;
                     else
@@ -436,10 +442,10 @@ int executeOpcode()
                     v[bits.n.b] >>= 1;
                     break; 
                 case 0x7:
-                    fmt::print("8{0:X}{1:X}7: V{0:X} = V{1:X} - V{0:X}. VF is set to 0 when there's a borrow.", bits.n.b, bits.n.c);
+                    if (verbose) fmt::print("8{0:X}{1:X}7: V{0:X} = V{1:X} - V{0:X}. VF is set to 0 when there's a borrow.", bits.n.b, bits.n.c);
                     break; 
                 case 0xE:
-                    fmt::print("8{0:X}{1:X}6: V{0:X} <<= 1. VF is set to the value of the MSB of V{0:X} before the shift.", bits.n.b, bits.n.c);
+                    if (verbose) fmt::print("8{0:X}{1:X}6: V{0:X} <<= 1. VF is set to the value of the MSB of V{0:X} before the shift.", bits.n.b, bits.n.c);
                     VF = (v[bits.n.b] >> 7);
                     v[bits.n.b] <<= 1;
                     break; 
@@ -448,36 +454,37 @@ int executeOpcode()
             }
             break;
         case 9:
-            fmt::print("9{0:X}{1:X}0: Skip next instruction if V{0:X} != V{1:X}", bits.n.b, bits.n.c);
+            if (verbose) fmt::print("9{0:X}{1:X}0: Skip next instruction if V{0:X} != V{1:X}", bits.n.b, bits.n.c);
             if (v[bits.n.b] != v[bits.b.b])
                 pc += 2;
             break;
         case 0xA:
-            fmt::print("A{0:0>3X}: Set I to the address {0:0>3X}", bits.t.b);
+            if (verbose) fmt::print("A{0:0>3X}: Set I to the address {0:0>3X}", bits.t.b);
             I = bits.t.b;
             break;
         case 0xB:
-            fmt::print("B{0:0>3X}: PC = V0 + {0:0>3X} (jump to address {0:0>3X} + V0)", bits.t.b);
+            if (verbose) fmt::print("B{0:0>3X}: PC = V0 + {0:0>3X} (jump to address {0:0>3X} + V0)", bits.t.b);
             pc = V0 + bits.t.b;
-            fmt::print("\n");
+            if (verbose) fmt::print("\n");
             return 0;
             break;
         case 0xC:
-            fmt::print("C{0:X}{1:0>2X}: V{0:X} = rand() & {1:X}", bits.n.b, bits.b.b);
-            v[bits.n.b] = rand() % bits.b.b;
+            if (verbose) fmt::print("C{0:X}{1:0>2X}: V{0:X} = rand() & {1:X}", bits.n.b, bits.b.b);
+            v[bits.n.b] = rand() % (bits.b.b + 1);
             break;
         case 0xD: // TODO
-            fmt::print("D{0:X}{1:X}{2:X}: Draw sprite at V{0:X},V{1:X} with height {2:d} pixels.", bits.n.b, bits.n.c, bits.n.d);
+            if (verbose) fmt::print("D{0:X}{1:X}{2:X}: Draw sprite at V{0:X},V{1:X} with height {2:d} pixels.", bits.n.b, bits.n.c, bits.n.d);
             drawSprite(bits.n.b, bits.n.c, bits.n.d);
+            dirtyDisplay = true;
             break;
         case 0xE:
             if(bits.b.b == 0x9E) {
-                fmt::print("E{0:X}9E: Skip next instruction if key stored in V{0:X} ({1:X}) is pressed.", bits.n.b, v[bits.n.b]);
+                if (verbose) fmt::print("E{0:X}9E: Skip next instruction if key stored in V{0:X} ({1:X}) is pressed.", bits.n.b, v[bits.n.b]);
                 if(key[v[bits.n.b]])
                     pc += 2;
             }
             if(bits.b.b == 0xA1) {
-                fmt::print("E{0:X}A1: Skip next instruction if key stored in V{0:X} is not pressed.", bits.n.b);
+                if (verbose) fmt::print("E{0:X}A1: Skip next instruction if key stored in V{0:X} is not pressed.", bits.n.b);
                 if(!key[v[bits.n.b]])
                     pc += 2;
             }
@@ -485,43 +492,43 @@ int executeOpcode()
         case 0xF:
             switch (bits.b.b) {
                 case 0x07:
-                    fmt::print("F{0:X}07: Set V{0:X} to the value of the delay timer.", bits.n.b);
+                    if (verbose) fmt::print("F{0:X}07: Set V{0:X} to the value of the delay timer.", bits.n.b);
                     v[bits.n.b] = delaytimer;
                     break;
                 case 0x0A:
-                    fmt::print("F{0:X}0A: Wait for keypress and store it in V{0:X}. Blocking operation - all instruction halted until next key event.", bits.n.b);
+                    if (verbose) fmt::print("F{0:X}0A: Wait for keypress and store it in V{0:X}. Blocking operation - all instruction halted until next key event.", bits.n.b);
                     break;
                 case 0x15:
-                    fmt::print("F{0:X}15: Set delay timer to V{0:X}", bits.n.b);
+                    if (verbose) fmt::print("F{0:X}15: Set delay timer to V{0:X}", bits.n.b);
                     delaytimer = v[bits.n.b];
                     break;
                 case 0x18:
-                    fmt::print("F{0:X}18: Set sound timer to V{0:X}", bits.n.b);
+                    if (verbose) fmt::print("F{0:X}18: Set sound timer to V{0:X}", bits.n.b);
                     soundtimer = v[bits.n.b];
                     break;
                 case 0x1E:
-                    fmt::print("F{0:X}1E: I += V{0:X}", bits.n.b);
+                    if (verbose) fmt::print("F{0:X}1E: I += V{0:X}", bits.n.b);
                     I += v[bits.n.b];
                     break;
                 case 0x29:
-                    fmt::print("F{0:X}29: Set I to the location of the sprite for the character in V{0:X}", bits.n.b);
+                    if (verbose) fmt::print("F{0:X}29: Set I to the location of the sprite for the character in V{0:X}", bits.n.b);
                     I = v[bits.n.b] * 5;
                     break;
                 case 0x33:
-                    fmt::print("F{0:X}33: BCD(V{0:X}) - store binary coded decimal representation of V{0:X} at address I ({1:X})", bits.n.b, I);
+                    if (verbose) fmt::print("F{0:X}33: BCD(V{0:X}) - store binary coded decimal representation of V{0:X} at address I ({1:X})", bits.n.b, I);
                     ram[I+0] =  v[bits.n.b] / 100;
                     ram[I+1] = (v[bits.n.b] /  10) % 10;
                     ram[I+2] = (v[bits.n.b] % 100) % 10;
                     break;
                 case 0x55:
-                    fmt::print("F{0:X}55: Store V0-V{0:X} in memory starting at address in I. I += 1 for each value written.", bits.n.b);
+                    if (verbose) fmt::print("F{0:X}55: Store V0-V{0:X} in memory starting at address in I. I += 1 for each value written.", bits.n.b);
                     for(int r = 0; r <= bits.n.b; r++) {
                         ram[I] = v[r];
                         I++;
                     }
                     break;
                 case 0x66:
-                    fmt::print("F{0:X}66: Load V0-V{0:X} with values from memory starting at address in I. I += 1 for each value written.", bits.n.b);
+                    if (verbose) fmt::print("F{0:X}66: Load V0-V{0:X} with values from memory starting at address in I. I += 1 for each value written.", bits.n.b);
                     for(int r = 0; r <= bits.n.b; r++) {
                         v[r] = ram[I];
                         I++;
@@ -535,7 +542,7 @@ int executeOpcode()
         default:
             break;
     }
-    fmt::print("\n");
+    if (verbose) fmt::print("\n");
     return 2;
 
 }
@@ -548,20 +555,16 @@ void initEmulator()
 
 void runCPU()
 {
-    //while(1) {
-        fmt::print("{0:0>4x} - ", pc);
-        pc += executeOpcode();
-        usleep(1000 * 100);   // microseconds!
+    if (verbose) fmt::print("{0:0>4x} - ", pc);
+    pc += executeOpcode();
 
-        // these should decrement at 60Hz (60 times per second) TODO: implement correct timing!
-        if(delaytimer > 0)
-            delaytimer--;
-        if(soundtimer > 0)
-            soundtimer--;
+    //usleep(1000 * 20);   // microseconds!
 
-        //if (pc > 0x200 + programSize)
-            //return;
-    //}
+    // these should decrement at 60Hz (60 times per second) TODO: implement correct timing!
+    if(delaytimer > 0)
+        delaytimer--;
+    if(soundtimer > 0)
+        soundtimer--;
 }
 
 void loadFont()
@@ -603,17 +606,17 @@ void drawSprite(u8 vx, u8 vy, u8 h)
 /*
  * Render a pixel from Chip-8 memory to the actual screen
  */
+sf::RectangleShape rect;
 void renderPixel(int x, int y)
 {
-    sf::RectangleShape rect;
-    rect.setSize(sf::Vector2f(pixelWidth, pixelHeight));
-    rect.setFillColor(sf::Color::White);
     rect.setPosition(x*pixelWidth, y*pixelHeight);
     window.draw(rect);
 }
 
 void updateDisplay()
 {
+    window.clear(sf::Color::Black);
+
     for (int x = 0; x < 64; x++) {
         for (int y = 0; y < 32; y++) {
             if (pixels[x + (y*64)] == 1) {
@@ -621,18 +624,24 @@ void updateDisplay()
             }
         }
     }
+
+    dirtyDisplay = false;
 }
 
 void initSFML()
 {
+    sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
+
     window.create(sf::VideoMode(screenWidth, screenHeight), "chipit");
     sf::Vector2i windowPosition;
-    // TODO: remove hard coded values, set position to center of screen
-    windowPosition.x = 300;
-    windowPosition.y = 200;
+    windowPosition.x = (desktop.width / 4) - (screenWidth / 2);
+    windowPosition.y = (desktop.height / 2) - (screenHeight / 2);
     window.setPosition(windowPosition);
     window.setVerticalSyncEnabled(true);
     window.clear(sf::Color::Black);
+
+    rect.setSize(sf::Vector2f(pixelWidth, pixelHeight));
+    rect.setFillColor(sf::Color::White);
 }
 
 void mainLoop()
@@ -649,15 +658,133 @@ void mainLoop()
                 done = true;
             else if(event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::F1) {
             }
-        }
-        if(event.type == sf::Event::KeyPressed) {
+
+            if(event.type == sf::Event::KeyReleased) {
+                switch (event.key.code) {
+                    case sf::Keyboard::Num1:
+                        key[0x1] = 0;
+                        break;
+                    case sf::Keyboard::Num2:
+                        key[0x2] = 0;
+                        break;
+                    case sf::Keyboard::Num3:
+                        key[0x3] = 0;
+                        break;
+                    case sf::Keyboard::Num4:
+                        key[0xC] = 0;
+                        break;
+                    case sf::Keyboard::Q:
+                        key[0x4] = 0;
+                        break;
+                    case sf::Keyboard::W:
+                        key[0x5] = 0;
+                        break;
+                    case sf::Keyboard::E:
+                        key[0x6] = 0;
+                        break;
+                    case sf::Keyboard::R:
+                        key[0xD] = 0;
+                        break;
+                    case sf::Keyboard::A:
+                        key[0x7] = 0;
+                        break;
+                    case sf::Keyboard::S:
+                        key[0x8] = 0;
+                        break;
+                    case sf::Keyboard::D:
+                        key[0x9] = 0;
+                        break;
+                    case sf::Keyboard::F:
+                        key[0xE] = 0;
+                        break;
+                    case sf::Keyboard::Z:
+                        key[0xA] = 0;
+                        break;
+                    case sf::Keyboard::X:
+                        key[0x0] = 0;
+                        break;
+                    case sf::Keyboard::C:
+                        key[0xB] = 0;
+                        break;
+                    case sf::Keyboard::V:
+                        key[0xF] = 0;
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+
+            if(event.type == sf::Event::KeyPressed) {
+                switch (event.key.code) {
+                    case sf::Keyboard::Num1:
+                        key[0x1] = 1;
+                        break;
+                    case sf::Keyboard::Num2:
+                        key[0x2] = 1;
+                        break;
+                    case sf::Keyboard::Num3:
+                        key[0x3] = 1;
+                        break;
+                    case sf::Keyboard::Num4:
+                        key[0xC] = 1;
+                        break;
+                    case sf::Keyboard::Q:
+                        key[0x4] = 1;
+                        break;
+                    case sf::Keyboard::W:
+                        key[0x5] = 1;
+                        break;
+                    case sf::Keyboard::E:
+                        key[0x6] = 1;
+                        break;
+                    case sf::Keyboard::R:
+                        key[0xD] = 1;
+                        break;
+                    case sf::Keyboard::A:
+                        key[0x7] = 1;
+                        break;
+                    case sf::Keyboard::S:
+                        key[0x8] = 1;
+                        break;
+                    case sf::Keyboard::D:
+                        key[0x9] = 1;
+                        break;
+                    case sf::Keyboard::F:
+                        key[0xE] = 1;
+                        break;
+                    case sf::Keyboard::Z:
+                        key[0xA] = 1;
+                        break;
+                    case sf::Keyboard::X:
+                        key[0x0] = 1;
+                        break;
+                    case sf::Keyboard::C:
+                        key[0xB] = 1;
+                        break;
+                    case sf::Keyboard::V:
+                        key[0xF] = 1;
+                        break;
+
+                    default:
+                        break;
+                }
+            }
         }
 
         runCPU();
-        updateDisplay();
-        window.display();
-    }
 
+        if(dirtyDisplay)
+            updateDisplay();
+
+        //tex.display();
+        //sf::Sprite spr(tex.getTexture());
+        //spr.move(0, 0);
+        //window.draw(spr);
+
+        window.display();
+
+    }
     //window.clear();
 
     window.close();
@@ -685,7 +812,7 @@ int main(int argc, char *argv[])
     fmt::print("[loading font sprites...]\n");
     loadFont();
 
-    fmt::print("[loading file...]\n\n");
+    fmt::print("[loading file...]\n");
     if (argc > 2) {   // simple argument parsing... TODO: improve it
         f = fopen(argv[2], "rb");
         fseek(f, 0L, SEEK_END);
@@ -699,9 +826,10 @@ int main(int argc, char *argv[])
 
     
     if(arg == "-d") {
-        fmt::print("[decoding opcodes]\n\n");
+        fmt::print("[decoding opcodes...]\n");
         dumpProgram(0x200, filesize);
     } else if (arg == "-r") {
+        fmt::print("[running emulator...]\n");
         initEmulator();
         mainLoop();
         //runEmulator(filesize);
