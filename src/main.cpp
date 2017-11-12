@@ -352,9 +352,8 @@ int executeOpcode()
                 }
                 if(bits.b.b == 0xEE) {       // Return from subroutine
                     if (verbose) fmt::print("00EE: Return from subroutine");
-                    pc = stack[stackptr];
                     stackptr--;
-                    //stack[stackptr] = 0;  // correct? necessary?
+                    pc = stack[stackptr];
                 }
             } else {
                 fmt::print("0{0:0>3X}: Call RCA 1802 program at address {0:0>3X} NOT IMPLEMENTED\n", bits.t.b);
@@ -369,8 +368,8 @@ int executeOpcode()
         case 2:
             if (verbose) fmt::print("2{0:0>3X}: Call subroutine at address {0:0>3x}", bits.t.b);
             // Push current PC to the stack
-            stackptr++;
             stack[stackptr] = pc;
+            stackptr++;
             // Jump to subroutine
             pc = bits.t.b;
             if (verbose) fmt::print("\n");
@@ -388,7 +387,7 @@ int executeOpcode()
             break;
         case 5:
             if (verbose) fmt::print("5{0:X}{1:X}0: Skip next instruction if V{0:X} == V{1:X}", bits.n.b, bits.n.c);
-            if (v[bits.n.b] == v[bits.b.b])
+            if (v[bits.n.b] == v[bits.n.c])
                 pc += 2;
             break;
         case 6:
@@ -551,6 +550,9 @@ void initEmulator()
 {
     // TODO: set everything to zero / other initial value
     pc = 0x200;
+    opcode = 0;
+    I = 0;
+    stackptr = 0;
 }
 
 void runCPU()
@@ -615,6 +617,7 @@ void renderPixel(int x, int y)
 
 void updateDisplay()
 {
+    // TODO: this is probably the reason for the slowness!
     tex.clear(sf::Color::Black);
 
     for (int y = 0; y < 32; y++) {
@@ -651,6 +654,19 @@ void mainLoop()
     bool done = false;
 
     while(window.isOpen() && !done) {
+        runCPU();
+
+        if(dirtyDisplay) {
+            updateDisplay();
+            tex.display();
+            sf::Sprite spr(tex.getTexture());
+            spr.move(0, 0);
+            window.draw(spr);
+        }
+
+
+        window.display();
+
         sf::Event event;
 
         while(window.pollEvent(event)) {
@@ -774,18 +790,6 @@ void mainLoop()
             }
         }
 
-        runCPU();
-
-        if(dirtyDisplay) {
-            updateDisplay();
-            tex.display();
-            sf::Sprite spr(tex.getTexture());
-            spr.move(0, 0);
-            window.draw(spr);
-        }
-
-
-        window.display();
 
     }
     //window.clear();
