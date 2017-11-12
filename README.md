@@ -5,7 +5,9 @@ Written to teach myself more about emulators.
 Written from scratch based on documentation found online.
 Some minor parts inspired by code from other CHIP-8 emulators.
 
-AFAIK there are no bugs at this time, the programs I've tested seem to run as expected.
+AFAIK there is only one bug: some programs segfaults - but I don't know why,
+because it doesn't happen when I run the program in a debugger!
+So apart from that there are no bugs I am aware of at this time. The programs I've tested seem to run as expected.
 
 Sound is not implemented.
 No support for Mega-/Super-CHIP-8 or other variants.
