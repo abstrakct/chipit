@@ -349,6 +349,7 @@ int executeOpcode()
                     if (verbose) fmt::print("00E0: Clear the screen");
                     memset(pixels, 0, 64*32*sizeof(u8));
                     window.clear(sf::Color::Black);
+                    dirtyDisplay = true;
                 }
                 if(bits.b.b == 0xEE) {       // Return from subroutine
                     if (verbose) fmt::print("00EE: Return from subroutine");
@@ -500,12 +501,14 @@ int executeOpcode()
                     v[bits.n.b] = delaytimer;
                     break;
                 case 0x0A: {
-                               if (verbose) fmt::print("F{0:X}0A: Wait for keypress and store it in V{0:X}. Blocking operation - all instruction halted until next key event.", bits.n.b);
+                               if (verbose) fmt::print("F{0:X}0A: Wait for keypress and store it in V{0:X}. Blocking operation - all instruction halted until next key event.\n", bits.n.b);
                                bool keyPressed = false;
                                for (int i = 0; i < 16; i++) {
                                    if (key[i]) {
                                        V0 = i;
                                        keyPressed = true;
+                                       if (verbose) fmt::print("KEY PRESSED: {0:X} V0 is now: {1:X}\n", i, V0);
+                                       return 2;
                                    }
                                }
                                if(!keyPressed)
@@ -541,8 +544,8 @@ int executeOpcode()
                         I++;
                     }
                     break;
-                case 0x66:
-                    if (verbose) fmt::print("F{0:X}66: Load V0-V{0:X} with values from memory starting at address in I. I += 1 for each value written.", bits.n.b);
+                case 0x65:
+                    if (verbose) fmt::print("F{0:X}66: Load V0-V{0:X} with values from memory starting at address in I. I += 1 for each value read.", bits.n.b);
                     for(int r = 0; r <= bits.n.b; r++) {
                         v[r] = ram[I];
                         I++;
