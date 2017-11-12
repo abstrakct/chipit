@@ -1,4 +1,4 @@
-= Chipit =
+# Chipit
 
 A very slow and very simple CHIP-8 emulator.
 Written to teach myself more about emulators.
