@@ -468,9 +468,8 @@ int executeOpcode()
             I = bits.t.b;
             break;
         case 0xB:
-            if (verbose) fmt::print("B{0:0>3X}: PC = V0 + {0:0>3X} (jump to address {0:0>3X} + V0)", bits.t.b);
+            if (verbose) fmt::print("B{0:0>3X}: PC = V0 + {0:0>3X} (jump to address {0:0>3X} + V0)\n", bits.t.b);
             pc = V0 + bits.t.b;
-            if (verbose) fmt::print("\n");
             return 0;
             break;
         case 0xC:
@@ -560,8 +559,8 @@ int executeOpcode()
             break;
     }
     if (verbose) fmt::print("\n");
-    return 2;
 
+    return 2;
 }
 
 void initEmulator()
