@@ -442,6 +442,11 @@ int executeOpcode()
                     break; 
                 case 0x7:
                     if (verbose) fmt::print("8{0:X}{1:X}7: V{0:X} = V{1:X} - V{0:X}. VF is set to 0 when there's a borrow.", bits.n.b, bits.n.c);
+                    if (v[bits.n.b] > v[bits.n.c])
+                        VF = 0;
+                    else
+                        VF = 1;
+                    v[bits.n.b] = v[bits.n.c] - v[bits.n.b];
                     break; 
                 case 0xE:
                     if (verbose) fmt::print("8{0:X}{1:X}6: V{0:X} <<= 1. VF is set to the value of the MSB of V{0:X} before the shift.", bits.n.b, bits.n.c);
