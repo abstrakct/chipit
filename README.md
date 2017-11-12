@@ -5,6 +5,11 @@ Written to teach myself more about emulators.
 Written from scratch based on documentation found online.
 Some minor parts inspired by code from other CHIP-8 emulators.
 
+AFAIK there are no bugs at this time, the programs I've tested seem to run as expected.
+
+Sound is not implemented.
+No support for Mega-/Super-CHIP-8 or other variants.
+
 Ideas for improvement:
 * Function pointers instead of giant switch statements
 * Better keymapping support
