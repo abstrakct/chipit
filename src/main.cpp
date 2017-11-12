@@ -27,8 +27,8 @@ typedef int64_t  i64;
 // SFML
 sf::RenderWindow window;
 sf::RenderTexture tex;
-const int pixelWidth = 8;
-const int pixelHeight = 8;
+const int pixelWidth = 16;
+const int pixelHeight = 16;
 const int screenWidth = 64 * pixelWidth;
 const int screenHeight = 32 * pixelHeight;
 
@@ -495,7 +495,7 @@ int executeOpcode()
                     if (verbose) fmt::print("F{0:X}07: Set V{0:X} to the value of the delay timer.", bits.n.b);
                     v[bits.n.b] = delaytimer;
                     break;
-                case 0x0A:
+                case 0x0A: // TODO: implement!
                     if (verbose) fmt::print("F{0:X}0A: Wait for keypress and store it in V{0:X}. Blocking operation - all instruction halted until next key event.", bits.n.b);
                     break;
                 case 0x15:
@@ -610,15 +610,15 @@ sf::RectangleShape rect;
 void renderPixel(int x, int y)
 {
     rect.setPosition(x*pixelWidth, y*pixelHeight);
-    window.draw(rect);
+    tex.draw(rect);
 }
 
 void updateDisplay()
 {
-    window.clear(sf::Color::Black);
+    tex.clear(sf::Color::Black);
 
-    for (int x = 0; x < 64; x++) {
-        for (int y = 0; y < 32; y++) {
+    for (int y = 0; y < 32; y++) {
+        for (int x = 0; x < 64; x++) {
             if (pixels[x + (y*64)] == 1) {
                 renderPixel(x, y);
             }
@@ -639,6 +639,8 @@ void initSFML()
     window.setPosition(windowPosition);
     window.setVerticalSyncEnabled(true);
     window.clear(sf::Color::Black);
+
+    tex.create(screenWidth, screenHeight);
 
     rect.setSize(sf::Vector2f(pixelWidth, pixelHeight));
     rect.setFillColor(sf::Color::White);
@@ -774,13 +776,14 @@ void mainLoop()
 
         runCPU();
 
-        if(dirtyDisplay)
+        if(dirtyDisplay) {
             updateDisplay();
+            tex.display();
+            sf::Sprite spr(tex.getTexture());
+            spr.move(0, 0);
+            window.draw(spr);
+        }
 
-        //tex.display();
-        //sf::Sprite spr(tex.getTexture());
-        //spr.move(0, 0);
-        //window.draw(spr);
 
         window.display();
 
