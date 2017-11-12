@@ -4,13 +4,18 @@
  *
  * A CHIP-8 emulator.
  *
+ * TODO: Keypresses, drawing, sprites, BCD instruction.
  */
 
 #include <unistd.h>
 #include <stdint.h>
-#include <fmt/format.h>
 #include <iostream>
 #include <string>
+#include <cstring>
+
+#include <fmt/format.h>
+#include <SFML/Window.hpp>
+#include <SFML/Graphics.hpp>
 
 typedef uint8_t   u8;
 typedef uint16_t u16;
@@ -18,6 +23,13 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 typedef int32_t  i32;
 typedef int64_t  i64;
+
+// SFML
+sf::RenderWindow window;
+const int pixelWidth = 8;
+const int pixelHeight = 8;
+const int screenWidth = 64 * pixelWidth;
+const int screenHeight = 32 * pixelHeight;
 
 struct OpcodeNibbles {
     u16 d : 4;
@@ -48,7 +60,7 @@ union opcodeBits {
 // 0x200 - 0xE9F - program code
 // 0xEA0 - 0xEFF - call stack, internal use and other variables
 // 0xF00 - 0xFFF - display refresh
-u8 ram[4096];
+u8 ram[4096] = {0};
 
 // Registers. The CHIP-8 has 16 8-bit registers, named V0 - VF.
 // VF doubles as a flag for some instructions. VF is also carry flag.
@@ -92,8 +104,31 @@ u8 soundtimer = 0;
 // 16 input keys
 u8 key[16];
 
-// The display is 64x32 pixels. Color is monochrome, therefore we will try using bool.
-bool pixels[64*32];
+// The display is 64x32 pixels. Color is monochrome.
+u8 pixels[64*32];
+
+// The font sprites
+u8 font[16][5] = {
+    { 0xF0, 0x90, 0x90, 0x90, 0xF0 },  // 0
+    { 0x20, 0x60, 0x20, 0x20, 0x70 },  // 1
+    { 0xF0, 0x10, 0xF0, 0x80, 0xF0 },  // etc..
+    { 0xF0, 0x10, 0xF0, 0x10, 0xF0 },
+    { 0x90, 0x90, 0xF0, 0x10, 0x10 },
+    { 0xF0, 0x80, 0xF0, 0x10, 0xF0 },
+    { 0xF0, 0x80, 0xF0, 0x90, 0xF0 },
+    { 0xF0, 0x10, 0x20, 0x40, 0x40 },
+    { 0xF0, 0x90, 0xF0, 0x90, 0xF0 },
+    { 0xF0, 0x90, 0xF0, 0x10, 0xF0 },
+    { 0xF0, 0x90, 0xF0, 0x90, 0x90 },
+    { 0xE0, 0x90, 0xE0, 0x90, 0xE0 },
+    { 0xF0, 0x80, 0x80, 0x80, 0xF0 },
+    { 0xE0, 0x90, 0x90, 0x90, 0xE0 },
+    { 0xF0, 0x80, 0xF0, 0x80, 0xF0 },
+    { 0xF0, 0x80, 0xF0, 0x80, 0x80 }
+};
+
+// Forward declarations
+void drawSprite(u8 vx, u8 vy, u8 h);
 
 void decodeOpcode(u16 op)
 {
@@ -195,7 +230,7 @@ void decodeOpcode(u16 op)
             break;
         case 0xE:
             if(bits.b.b == 0x9E) {
-                fmt::print("E{0:X}9E: Skip next instruction if key stored in V{0:X} is pressed.", bits.n.b);
+                fmt::print("E{0:X}9E: Skip next instruction if key stored in V{0:X} ({1:X}) is pressed.", bits.n.b, v[bits.n.b]);
             }
             if(bits.b.b == 0xA1) {
                 fmt::print("E{0:X}A1: Skip next instruction if key stored in V{0:X} is not pressed.", bits.n.b);
@@ -296,12 +331,6 @@ int executeOpcode()
 {
     opcodeBits bits;
     bits.opcode = (ram[pc] << 8) | ram[pc+1];
-
-    //fmt::print("\nDecoding opcode -> hex: {0:x}  bin: {0:0>16b} / ", op);
-    //fmt::print("{0:0>4b} ",  bits.n.a);
-    //fmt::print("{0:0>4b} ",  bits.n.b);
-    //fmt::print("{0:0>4b} ",  bits.n.c);
-    //fmt::print("{0:0>4b}\n", bits.n.d);
 
     if(bits.b.a == 0 && bits.b.b == 0) {
         fmt::print("{0:0>2X}{1:0>2X}\n", bits.b.a, bits.b.b);
@@ -437,12 +466,13 @@ int executeOpcode()
             fmt::print("C{0:X}{1:0>2X}: V{0:X} = rand() & {1:X}", bits.n.b, bits.b.b);
             v[bits.n.b] = rand() % bits.b.b;
             break;
-        case 0xD:
+        case 0xD: // TODO
             fmt::print("D{0:X}{1:X}{2:X}: Draw sprite at V{0:X},V{1:X} with height {2:d} pixels.", bits.n.b, bits.n.c, bits.n.d);
+            drawSprite(bits.n.b, bits.n.c, bits.n.d);
             break;
         case 0xE:
             if(bits.b.b == 0x9E) {
-                fmt::print("E{0:X}9E: Skip next instruction if key stored in V{0:X} is pressed.", bits.n.b);
+                fmt::print("E{0:X}9E: Skip next instruction if key stored in V{0:X} ({1:X}) is pressed.", bits.n.b, v[bits.n.b]);
                 if(key[v[bits.n.b]])
                     pc += 2;
             }
@@ -475,9 +505,13 @@ int executeOpcode()
                     break;
                 case 0x29:
                     fmt::print("F{0:X}29: Set I to the location of the sprite for the character in V{0:X}", bits.n.b);
+                    I = v[bits.n.b] * 5;
                     break;
                 case 0x33:
-                    fmt::print("F{0:X}33: BCD(V{0:X}) - binary coded decimal representation - see wikipedia.....", bits.n.b);
+                    fmt::print("F{0:X}33: BCD(V{0:X}) - store binary coded decimal representation of V{0:X} at address I ({1:X})", bits.n.b, I);
+                    ram[I+0] =  v[bits.n.b] / 100;
+                    ram[I+1] = (v[bits.n.b] /  10) % 10;
+                    ram[I+2] = (v[bits.n.b] % 100) % 10;
                     break;
                 case 0x55:
                     fmt::print("F{0:X}55: Store V0-V{0:X} in memory starting at address in I. I += 1 for each value written.", bits.n.b);
@@ -506,34 +540,150 @@ int executeOpcode()
 
 }
 
-void runEmulator(int programSize)
+void initEmulator()
 {
+    // TODO: set everything to zero / other initial value
     pc = 0x200;
-    while(1) {
+}
+
+void runCPU()
+{
+    //while(1) {
         fmt::print("{0:0>4x} - ", pc);
         pc += executeOpcode();
         usleep(1000 * 100);   // microseconds!
 
-        // these should decrement at 60Hz (60 times per second I guess?)
+        // these should decrement at 60Hz (60 times per second) TODO: implement correct timing!
         if(delaytimer > 0)
             delaytimer--;
         if(soundtimer > 0)
             soundtimer--;
 
-        if (pc > 0x200 + programSize)
-            return;
+        //if (pc > 0x200 + programSize)
+            //return;
+    //}
+}
+
+void loadFont()
+{
+    for (int i = 0; i < 16; i++) {
+        std::memcpy(&ram[i*5], font[i], 5*sizeof(u8));
     }
+}
+
+// fmt::print("D{0:X}{1:X}{2:X}: Draw sprite at V{0:X},V{1:X} with height {2:d} pixels.", bits.n.b, bits.n.c, bits.n.d);
+// Dxyn - DRW Vx, Vy, nibble
+// Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision.
+// The interpreter reads n bytes from memory, starting at the address stored in I. These bytes are then displayed as sprites on
+// screen at coordinates (Vx, Vy). Sprites are XORed onto the existing screen. If this causes any pixels to be erased,
+// VF is set to 1, otherwise it is set to 0. If the sprite is positioned so part of it is outside the coordinates of the display,
+// it wraps around to the opposite side of the screen. 
+//
+// parts of drawSprite code borrowed from https://github.com/JamesGriffin/CHIP-8-Emulator/blob/master/src/chip8.cpp
+void drawSprite(u8 vx, u8 vy, u8 h)
+{
+    u8 x = v[vx];
+    u8 y = v[vy];
+    u8 pixel;
+
+    VF = 0;
+    for (int yl = 0; yl < h; yl++) {
+        pixel = ram[I + yl];
+        for (int xl = 0; xl < 8; xl++) {
+            if ((pixel & (0x80 >> xl)) != 0) {
+                if (pixels[(x+xl)+((y+yl)*64)] == 1) {
+                    VF = 1;
+                }
+                pixels[(x+xl)+((y+yl)*64)] ^= 1;
+            }
+        }
+    }
+}
+
+/*
+ * Render a pixel from Chip-8 memory to the actual screen
+ */
+void renderPixel(int x, int y)
+{
+    sf::RectangleShape rect;
+    rect.setSize(sf::Vector2f(pixelWidth, pixelHeight));
+    rect.setFillColor(sf::Color::White);
+    rect.setPosition(x*pixelWidth, y*pixelHeight);
+    window.draw(rect);
+}
+
+void updateDisplay()
+{
+    for (int x = 0; x < 64; x++) {
+        for (int y = 0; y < 32; y++) {
+            if (pixels[x + (y*64)] == 1) {
+                renderPixel(x, y);
+            }
+        }
+    }
+}
+
+void initSFML()
+{
+    window.create(sf::VideoMode(screenWidth, screenHeight), "chipit");
+    sf::Vector2i windowPosition;
+    // TODO: remove hard coded values, set position to center of screen
+    windowPosition.x = 300;
+    windowPosition.y = 200;
+    window.setPosition(windowPosition);
+    window.setVerticalSyncEnabled(true);
+    window.clear(sf::Color::Black);
+}
+
+void mainLoop()
+{
+    bool done = false;
+
+    while(window.isOpen() && !done) {
+        sf::Event event;
+
+        while(window.pollEvent(event)) {
+            if(event.type == sf::Event::Closed)
+                done = true;
+            if(event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape)
+                done = true;
+            else if(event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::F1) {
+            }
+        }
+        if(event.type == sf::Event::KeyPressed) {
+        }
+
+        runCPU();
+        updateDisplay();
+        window.display();
+    }
+
+    //window.clear();
+
+    window.close();
 }
 
 int main(int argc, char *argv[])
 {
     FILE *f;
     int filesize = 0;
-    std::string arg = argv[1];
+    std::string arg;
+    
+    if(argc < 2) {
+        fmt::print("syntax: chipate [-d | -r] FILENAME\n");
+        return 0;
+    }
+        
+    arg = argv[1];
 
     srand (time(NULL));
     
+    initSFML();
+
     fmt::print("\n\n     CHIPIT \n\n");
+
+    fmt::print("[loading font sprites...]\n");
+    loadFont();
 
     fmt::print("[loading file...]\n\n");
     if (argc > 2) {   // simple argument parsing... TODO: improve it
@@ -543,7 +693,7 @@ int main(int argc, char *argv[])
         fseek(f, 0L, SEEK_SET);
         fread(&ram[0x200], filesize, 1, f);
     } else {
-        fmt::print("syntax: chipate FILENAME\n");
+        fmt::print("syntax: chipate [-d | -r] FILENAME\n");
         return 0;
     }
 
@@ -552,7 +702,9 @@ int main(int argc, char *argv[])
         fmt::print("[decoding opcodes]\n\n");
         dumpProgram(0x200, filesize);
     } else if (arg == "-r") {
-        runEmulator(filesize);
+        initEmulator();
+        mainLoop();
+        //runEmulator(filesize);
     }
 
     
