@@ -499,8 +499,18 @@ int executeOpcode()
                     if (verbose) fmt::print("F{0:X}07: Set V{0:X} to the value of the delay timer.", bits.n.b);
                     v[bits.n.b] = delaytimer;
                     break;
-                case 0x0A: // TODO: implement!
-                    if (verbose) fmt::print("F{0:X}0A: Wait for keypress and store it in V{0:X}. Blocking operation - all instruction halted until next key event.", bits.n.b);
+                case 0x0A: {
+                               if (verbose) fmt::print("F{0:X}0A: Wait for keypress and store it in V{0:X}. Blocking operation - all instruction halted until next key event.", bits.n.b);
+                               bool keyPressed = false;
+                               for (int i = 0; i < 16; i++) {
+                                   if (key[i]) {
+                                       V0 = i;
+                                       keyPressed = true;
+                                   }
+                               }
+                               if(!keyPressed)
+                                   return 0;
+                           }
                     break;
                 case 0x15:
                     if (verbose) fmt::print("F{0:X}15: Set delay timer to V{0:X}", bits.n.b);
