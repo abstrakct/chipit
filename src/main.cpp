@@ -438,6 +438,8 @@ void mainLoop()
                 }
             }
         }
+
+        usleep(1200);
     }
     //window.clear();
 
@@ -462,7 +464,7 @@ int main(int argc, char *argv[])
     initSFML();
     initPixelData();
 
-    fmt::print("\n\n     CHIPIT \n\n");
+    fmt::print("\n\n     CHIPIT v1.0\n\n");
 
     fmt::print("[loading font sprites...]\n");
     loadFont();
