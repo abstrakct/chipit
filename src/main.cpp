@@ -17,6 +17,7 @@
 #include <SFML/Window.hpp>
 #include <SFML/Graphics.hpp>
 
+// Typedefs
 typedef uint8_t   u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -27,6 +28,8 @@ typedef int64_t  i64;
 // SFML
 sf::RenderWindow window;
 sf::RenderTexture tex;
+sf::Clock clck;
+
 const int pixelWidth = 16;
 const int pixelHeight = 16;
 const int screenWidth = 64 * pixelWidth;
@@ -71,22 +74,22 @@ u8 ram[4096] = {0};
 // VF doubles as a flag for some instructions. VF is also carry flag.
 // While in subtraction, it is the "not borrow" flag. In the draw instruction, VF is set upon pixel collision.
 u8 v[16];
-#define V0 v[0x0]
-#define V1 v[0x1]
-#define V2 v[0x2]
-#define V3 v[0x3]
-#define V4 v[0x4]
-#define V5 v[0x5]
-#define V6 v[0x6]
-#define V7 v[0x7]
-#define V8 v[0x8]
-#define V9 v[0x9]
-#define VA v[0xa]
-#define VB v[0xb]
-#define VC v[0xc]
-#define VD v[0xd]
-#define VE v[0xe]
-#define VF v[0xf]
+u8 &V0 = v[0x0];
+u8 &V1 = v[0x1];
+u8 &V2 = v[0x2];
+u8 &V3 = v[0x3];
+u8 &V4 = v[0x4];
+u8 &V5 = v[0x5];
+u8 &V6 = v[0x6];
+u8 &V7 = v[0x7];
+u8 &V8 = v[0x8];
+u8 &V9 = v[0x9];
+u8 &VA = v[0xa];
+u8 &VB = v[0xb];
+u8 &VC = v[0xc];
+u8 &VD = v[0xd];
+u8 &VE = v[0xe];
+u8 &VF = v[0xf];
 
 // An opcode is 2 bytes / 16 bits
 u16 opcode;
@@ -109,8 +112,13 @@ u8 soundtimer = 0;
 // 16 input keys
 u8 key[16];
 
+typedef struct {
+    int x, y;
+    bool pixel;
+} pixelData;
 // The display is 64x32 pixels. Color is monochrome.
-u8 pixels[64*32];
+//u8 pixels[64*32];
+std::array<pixelData, 64*32> pixels;
 
 // The font sprites
 u8 font[16][5] = {
@@ -135,200 +143,42 @@ u8 font[16][5] = {
 // Forward declarations
 void drawSprite(u8 vx, u8 vy, u8 h);
 
-void decodeOpcode(u16 op)
+//void dumpProgram(int start, int length)
+//{
+//    u16 opcode = 0;
+//    for(int i = 0; i < length; i+=2) {
+//        opcode = (ram[start + i] << 8) | ram[start + i + 1];
+//        fmt::print("{0:0>4x} - ", start + i);
+//        decodeOpcode(opcode);
+//    }
+//}
+
+// simple way to measure execution time - could be better...
+std::string measureTask;
+sf::Time start;
+sf::Time end;
+sf::Time elapsed;
+void measureStart(std::string task)
 {
-    opcodeBits bits;
-    bits.opcode = op;
-
-    //fmt::print("\nDecoding opcode -> hex: {0:x}  bin: {0:0>16b} / ", op);
-    //fmt::print("{0:0>4b} ",  bits.n.a);
-    //fmt::print("{0:0>4b} ",  bits.n.b);
-    //fmt::print("{0:0>4b} ",  bits.n.c);
-    //fmt::print("{0:0>4b}\n", bits.n.d);
-
-    if(bits.b.a == 0 && bits.b.b == 0) {
-        fmt::print("{0:0>2X}{1:0>2X}\n", bits.b.a, bits.b.b);
-        return;
-    }
-
-    switch (bits.n.a) {                      // check the first nibble (highest 4 bits)
-        case 0:
-            if(bits.n.b == 0) {
-                if(bits.b.b == 0xE0) {       // Clear the screen
-                    fmt::print("00E0: Clear the screen");
-                }
-                if(bits.b.b == 0xEE) {       // Return from subroutine
-                    fmt::print("00EE: Return from subroutine");
-                }
-            } else {
-                fmt::print("0{0:0>3X}: Call RCA 1802 program at address {0:0>3X}", bits.t.b);
-            }
-            break;
-        case 1:
-            fmt::print("1{0:X}: Jump to address {0:#x}", bits.t.b);
-            break;
-        case 2:
-            fmt::print("2{0:0>3X}: Call subroutine at address {0:0>3x}", bits.t.b);
-            break;
-        case 3:
-            fmt::print("3{0:X}{1:0>2X}: Skip next instruction if V{0:X} == {1:X}", bits.n.b, bits.b.b);
-            break;
-        case 4:
-            fmt::print("4{0:X}{1:0>2X}: Skip next instruction if V{0:X} != {1:X}", bits.n.b, bits.b.b);
-            break;
-        case 5:
-            fmt::print("5{0:X}{1:X}0: Skip next instruction if V{0:X} == V{1:X}", bits.n.b, bits.n.c);
-            break;
-        case 6:
-            fmt::print("6{0:X}{1:0>2X}: V{0:X} = {1:X}", bits.n.b, bits.b.b);
-            break;
-        case 7:
-            fmt::print("7{0:X}{1:0>2X}: V{0:X} += {1:X}", bits.n.b, bits.b.b);
-            break;
-        case 8:
-            switch(bits.n.d) {
-                case 0x0:
-                    fmt::print("8{0:X}{1:X}0: V{0:X} = V{1:X}", bits.n.b, bits.n.c);
-                    break; 
-                case 0x1:
-                    fmt::print("8{0:X}{1:X}1: V{0:X} = V{0:X} OR V{1:X} (bitwise OR)", bits.n.b, bits.n.c);
-                    break; 
-                case 0x2:
-                    fmt::print("8{0:X}{1:X}2: V{0:X} = V{0:X} AND V{1:X} (bitwise AND)", bits.n.b, bits.n.c);
-                    break; 
-                case 0x3:
-                    fmt::print("8{0:X}{1:X}3: V{0:X} = V{0:X} XOR V{1:X} (bitwise XOR)", bits.n.b, bits.n.c);
-                    break; 
-                case 0x4:
-                    fmt::print("8{0:X}{1:X}4: V{0:X} += V{1:X} - VF set to 1 when there's a carry.", bits.n.b, bits.n.c);
-                    break; 
-                case 0x5:
-                    fmt::print("8{0:X}{1:X}5: V{0:X} -= V{1:X} - VF set to 0 when there's a borrow, 1 if not.", bits.n.b, bits.n.c);
-                    break; 
-                case 0x6:
-                    fmt::print("8{0:X}{1:X}6: V{0:X} = (V{1:X} >> 1). VF is set to the value of the LSB of V{1:X} before the shift.", bits.n.b, bits.n.c);
-                    break; 
-                case 0x7:
-                    fmt::print("8{0:X}{1:X}7: V{0:X} = V{1:X} - V{0:X}. VF is set to 0 when there's a borrow.", bits.n.b, bits.n.c);
-                    break; 
-                case 0xE:
-                    fmt::print("8{0:X}{1:X}E: V{0:X} = (V{1:X} << 1). VF is set to the value of the MSB of V{1:X} before the shift.", bits.n.b, bits.n.c);
-                    break; 
-                default:
-                    break;
-            }
-            break;
-        case 9:
-            fmt::print("9{0:X}{1:X}0: Skip next instruction if V{0:X} != V{1:X}", bits.n.b, bits.n.c);
-            break;
-        case 0xA:
-            fmt::print("A{0:0>3X}: Set I to the address {0:0>3X}", bits.t.b);
-            break;
-        case 0xB:
-            fmt::print("B{0:0>3X}: PC = V0 + {0:0>3X} (jump to address {0:0>3X} + V0)", bits.t.b);
-            break;
-        case 0xC:
-            fmt::print("C{0:X}{1:0>2X}: V{0:X} = rand() & {1:X} (Set V{0:X} to result of a bitwise AND operation on a random number and {1:X}.)", bits.n.b, bits.b.b);
-            break;
-        case 0xD:
-            fmt::print("D{0:X}{1:X}{2:X}: Draw sprite at V{0:X},V{1:X} with height {2:d} pixels.", bits.n.b, bits.n.c, bits.n.d);
-            break;
-        case 0xE:
-            if(bits.b.b == 0x9E) {
-                fmt::print("E{0:X}9E: Skip next instruction if key stored in V{0:X} ({1:X}) is pressed.", bits.n.b, v[bits.n.b]);
-            }
-            if(bits.b.b == 0xA1) {
-                fmt::print("E{0:X}A1: Skip next instruction if key stored in V{0:X} is not pressed.", bits.n.b);
-            }
-            break;
-        case 0xF:
-            switch (bits.b.b) {
-                case 0x07:
-                    fmt::print("F{0:X}07: Set V{0:X} to the value of the delay timer.", bits.n.b);
-                    break;
-                case 0x0A:
-                    fmt::print("F{0:X}0A: Wait for keypress and store it in V{0:X}. Blocking operation - all instruction halted until next key event.", bits.n.b);
-                    break;
-                case 0x15:
-                    fmt::print("F{0:X}15: Set delay timer to V{0:X}", bits.n.b);
-                    break;
-                case 0x18:
-                    fmt::print("F{0:X}18: Set sound timer to V{0:X}", bits.n.b);
-                    break;
-                case 0x1E:
-                    fmt::print("F{0:X}1E: I += V{0:X}", bits.n.b);
-                    break;
-                case 0x29:
-                    fmt::print("F{0:X}29: Set I to the location of the sprite for the character in V{0:X}", bits.n.b);
-                    break;
-                case 0x33:
-                    fmt::print("F{0:X}33: BCD(V{0:X}) - binary coded decimal representation - see wikipedia.....", bits.n.b);
-                    break;
-                case 0x55:
-                    fmt::print("F{0:X}55: Store V0-V{0:X} in memory starting at address in I. I += 1 for each value written.", bits.n.b);
-                    break;
-                case 0x66:
-                    fmt::print("F{0:X}66: Load V0-V{0:X} with values from memory starting at address in I. I += 1 for each value written.", bits.n.b);
-                    break;
-
-
-                default:
-                    break;
-            }
-            break;
-        default:
-            break;
-    }
-    fmt::print("\n");
+    measureTask = task;
+    start = clck.getElapsedTime();
 }
 
-void testOpcodes()
+void measureEnd()
 {
-    decodeOpcode(0x0420);
-    decodeOpcode(0x00E0);
-    decodeOpcode(0x00EE);
-    decodeOpcode(0x1577);
-    decodeOpcode(0x29A3);
-    decodeOpcode(0x3a6B);
-    decodeOpcode(0x43A2);
-    decodeOpcode(0x5170);
-    decodeOpcode(0x65CD);
-    decodeOpcode(0x74DC);
-    decodeOpcode(0x8120);
-    decodeOpcode(0x8121);
-    decodeOpcode(0x8122);
-    decodeOpcode(0x8123);
-    decodeOpcode(0x8124);
-    decodeOpcode(0x8125);
-    decodeOpcode(0x8126);
-    decodeOpcode(0x8127);
-    decodeOpcode(0x812E);
-    decodeOpcode(0x9270);
-    decodeOpcode(0xA468);
-    decodeOpcode(0xB357);
-    decodeOpcode(0xC599);
-    decodeOpcode(0xD388);
-    decodeOpcode(0xE49E);
-    decodeOpcode(0xE4A1);
-    decodeOpcode(0xFD07);
-    decodeOpcode(0xFC0A);
-    decodeOpcode(0xF815);
-    decodeOpcode(0xF818);
-    decodeOpcode(0xF81E);
-    decodeOpcode(0xF829);
-    decodeOpcode(0xF833);
-    decodeOpcode(0xF855);
-    decodeOpcode(0xF866);
-
+    end = clck.getElapsedTime();
+    sf::Time elapsed = end - start;
+    std::cout << measureTask << " took " << elapsed.asMicroseconds() << " microseconds" << std::endl;
 }
 
-void dumpProgram(int start, int length)
+void initPixelData()
 {
-    u16 opcode = 0;
-    for(int i = 0; i < length; i+=2) {
-        opcode = (ram[start + i] << 8) | ram[start + i + 1];
-        fmt::print("{0:0>4x} - ", start + i);
-        decodeOpcode(opcode);
+    for (int y = 0; y < 32; y++) {
+        for (int x = 0; x < 64; x++) {
+            pixels[x + (y*64)].x = x * pixelWidth;
+            pixels[x + (y*64)].y = y * pixelHeight;
+            pixels[x + (y*64)].pixel = false;
+        }
     }
 }
 
@@ -347,8 +197,9 @@ int executeOpcode()
             if(bits.n.b == 0) {
                 if(bits.b.b == 0xE0) {       // Clear the screen
                     if (verbose) fmt::print("00E0: Clear the screen");
-                    memset(pixels, 0, 64*32*sizeof(u8));
-                    window.clear(sf::Color::Black);
+                    for (auto it : pixels)
+                        it.pixel = false;
+                    //window.clear(sf::Color::Black);
                     dirtyDisplay = true;
                 }
                 if(bits.b.b == 0xEE) {       // Return from subroutine
@@ -560,8 +411,11 @@ int executeOpcode()
     }
     if (verbose) fmt::print("\n");
 
+
     return 2;
 }
+
+
 
 void initEmulator()
 {
@@ -575,9 +429,8 @@ void initEmulator()
 void runCPU()
 {
     if (verbose) fmt::print("{0:0>4x} - ", pc);
-    pc += executeOpcode();
 
-    //usleep(1000 * 20);   // microseconds!
+    pc += executeOpcode();
 
     // these should decrement at 60Hz (60 times per second) TODO: implement correct timing!
     if(delaytimer > 0)
@@ -606,17 +459,18 @@ void drawSprite(u8 vx, u8 vy, u8 h)
 {
     u8 x = v[vx];
     u8 y = v[vy];
-    u8 pixel;
 
+    // TODO: Deal with coordinates out of bounds!
     VF = 0;
     for (int yl = 0; yl < h; yl++) {
-        pixel = ram[I + yl];
+        u8 &pixel = ram[I + yl];
         for (int xl = 0; xl < 8; xl++) {
-            if ((pixel & (0x80 >> xl)) != 0) {
-                if (pixels[(x+xl)+((y+yl)*64)] == 1) {
+            if ((pixel & (0x80 >> xl))) {
+                int pos = (x+xl) + ((y+yl)*64);
+                if (pixels[pos].pixel) {
                     VF = 1;
                 }
-                pixels[(x+xl)+((y+yl)*64)] ^= 1;
+                pixels[pos].pixel ^= 1;
             }
         }
     }
@@ -634,16 +488,26 @@ void renderPixel(int x, int y)
 
 void updateDisplay()
 {
-    // TODO: this is probably the reason for the slowness!
     tex.clear(sf::Color::Black);
 
-    for (int y = 0; y < 32; y++) {
-        for (int x = 0; x < 64; x++) {
-            if (pixels[x + (y*64)] == 1) {
-                renderPixel(x, y);
-            }
+    for (auto it : pixels) {
+        if (it.pixel) {
+            rect.setPosition(it.x, it.y);
+            tex.draw(rect);
         }
     }
+
+    // TODO: this IS the reason for the slowness!
+    // migrate to SDL?
+    //for (int y = 0; y < 32; y++) {
+        //for (int x = 0; x < 64; x++) {
+            //if (pixels[x + (y*64)] == 1) {
+                ////renderPixel(x, y);
+                //rect.setPosition(x*pixelWidth, y*pixelHeight);
+                //tex.draw(rect);
+            //}
+        //}
+    //}
 
     dirtyDisplay = false;
 }
@@ -670,11 +534,14 @@ void mainLoop()
 {
     bool done = false;
 
-    while(window.isOpen() && !done) {
+    while (window.isOpen() && !done) {
+
         runCPU();
 
-        if(dirtyDisplay) {
+        if (dirtyDisplay) {
+            measureStart("updaatedisply");
             updateDisplay();
+            measureEnd();
             tex.display();
             sf::Sprite spr(tex.getTexture());
             spr.move(0, 0);
@@ -686,15 +553,15 @@ void mainLoop()
 
         sf::Event event;
 
-        while(window.pollEvent(event)) {
-            if(event.type == sf::Event::Closed)
+        while (window.pollEvent(event)) {
+            if (event.type == sf::Event::Closed)
                 done = true;
-            if(event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape)
+            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape)
                 done = true;
-            else if(event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::F1) {
+            else if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::F1) {
             }
 
-            if(event.type == sf::Event::KeyReleased) {
+            if (event.type == sf::Event::KeyReleased) {
                 switch (event.key.code) {
                     case sf::Keyboard::Num1:
                         key[0x1] = 0;
@@ -750,7 +617,7 @@ void mainLoop()
                 }
             }
 
-            if(event.type == sf::Event::KeyPressed) {
+            if (event.type == sf::Event::KeyPressed) {
                 switch (event.key.code) {
                     case sf::Keyboard::Num1:
                         key[0x1] = 1;
@@ -806,8 +673,6 @@ void mainLoop()
                 }
             }
         }
-
-
     }
     //window.clear();
 
@@ -830,6 +695,7 @@ int main(int argc, char *argv[])
     srand (time(NULL));
     
     initSFML();
+    initPixelData();
 
     fmt::print("\n\n     CHIPIT \n\n");
 
@@ -837,30 +703,31 @@ int main(int argc, char *argv[])
     loadFont();
 
     fmt::print("[loading file...]\n");
-    if (argc > 2) {   // simple argument parsing... TODO: improve it
-        f = fopen(argv[2], "rb");
-        fseek(f, 0L, SEEK_END);
-        filesize = ftell(f);
-        fseek(f, 0L, SEEK_SET);
-        fread(&ram[0x200], filesize, 1, f);
-    } else {
-        fmt::print("syntax: chipate [-d | -r] FILENAME\n");
-        return 0;
-    }
+
+    f = fopen(argv[1], "rb");
+    fseek(f, 0L, SEEK_END);
+    filesize = ftell(f);
+    fseek(f, 0L, SEEK_SET);
+    fread(&ram[0x200], filesize, 1, f);
+
+    //} else {
+    //    fmt::print("syntax: chipate [-d | -r] FILENAME\n");
+    //    return 0;
+    //}
 
     
-    if(arg == "-d") {
+    /*if(arg == "-d") {
         fmt::print("[decoding opcodes...]\n");
         dumpProgram(0x200, filesize);
-    } else if (arg == "-r") {
+    } else if (arg == "-r") {*/
         fmt::print("[running emulator...]\n");
         initEmulator();
         mainLoop();
         //runEmulator(filesize);
-    }
+    //}
 
     
-    fmt::print("\n[finished]\n");
+    fmt::print("[finished]\n\n");
     return 0;
 }
 
