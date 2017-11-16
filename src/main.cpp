@@ -119,6 +119,9 @@ typedef struct {
 // The display is 64x32 pixels. Color is monochrome.
 //u8 pixels[64*32];
 std::array<pixelData, 64*32> pixels;
+// vector is maaaybe slower than array, but if averaged probably very similar.
+// Note: compile with optimization! in debug mode vector is noticably slower than array.
+// std::vector<pixelData> pixels;
 
 // The font sprites
 u8 font[16][5] = {
@@ -142,6 +145,7 @@ u8 font[16][5] = {
 
 // Forward declarations
 void drawSprite(u8 vx, u8 vy, u8 h);
+int executeOpcode();
 
 //void dumpProgram(int start, int length)
 //{
@@ -182,6 +186,317 @@ void initPixelData()
     }
 }
 
+
+
+void initEmulator()
+{
+    // TODO: set everything to zero / other initial value
+    pc = 0x200;
+    opcode = 0;
+    I = 0;
+    stackptr = 0;
+}
+
+void runCPU()
+{
+    if (verbose) fmt::print("{0:0>4x} - ", pc);
+
+    pc += executeOpcode();
+
+    // these should decrement at 60Hz (60 times per second) TODO: implement correct timing!
+    if(delaytimer > 0)
+        delaytimer--;
+    if(soundtimer > 0)
+        soundtimer--;
+}
+
+void loadFont()
+{
+    for (int i = 0; i < 16; i++) {
+        std::memcpy(&ram[i*5], font[i], 5*sizeof(u8));
+    }
+}
+
+// fmt::print("D{0:X}{1:X}{2:X}: Draw sprite at V{0:X},V{1:X} with height {2:d} pixels.", bits.n.b, bits.n.c, bits.n.d);
+// Dxyn - DRW Vx, Vy, nibble
+// Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision.
+// The interpreter reads n bytes from memory, starting at the address stored in I. These bytes are then displayed as sprites on
+// screen at coordinates (Vx, Vy). Sprites are XORed onto the existing screen. If this causes any pixels to be erased,
+// VF is set to 1, otherwise it is set to 0. If the sprite is positioned so part of it is outside the coordinates of the display,
+// it wraps around to the opposite side of the screen. 
+//
+// parts of drawSprite code borrowed from https://github.com/JamesGriffin/CHIP-8-Emulator/blob/master/src/chip8.cpp
+void drawSprite(u8 vx, u8 vy, u8 h)
+{
+    u8 &x = v[vx];
+    u8 &y = v[vy];
+
+    // TODO: Deal with coordinates out of bounds!
+    VF = 0;
+    for (int yl = 0; yl < h; yl++) {
+        u8 &pixel = ram[I + yl];
+        for (int xl = 0; xl < 8; xl++) {
+            if ((pixel & (0x80 >> xl))) {
+                int pos = (x+xl) + ((y+yl)*64);
+                if (pixels[pos].pixel) {
+                    VF = 1;
+                }
+                pixels[pos].pixel ^= 1;
+            }
+        }
+    }
+}
+
+/*
+ * Render a pixel from Chip-8 memory to the actual screen
+ */
+sf::RectangleShape rect;
+void renderPixel(int x, int y)
+{
+    rect.setPosition(x*pixelWidth, y*pixelHeight);
+    tex.draw(rect);
+}
+
+// this is still slow.
+// migrate to SDL? not use rect?
+void updateDisplay()
+{
+    //tex.clear(sf::Color::Black);
+
+    for (auto it : pixels) {
+        if (it.pixel) {
+            rect.setFillColor(sf::Color::White);
+            rect.setPosition(it.x, it.y);
+            tex.draw(rect);
+        } else {
+            rect.setFillColor(sf::Color::Black);
+            rect.setPosition(it.x, it.y);
+            tex.draw(rect);
+        }
+    }
+
+    dirtyDisplay = false;
+}
+
+void initSFML()
+{
+    sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
+
+    window.create(sf::VideoMode(screenWidth, screenHeight), "chipit");
+    sf::Vector2i windowPosition;
+    windowPosition.x = (desktop.width / 4) - (screenWidth / 2);
+    windowPosition.y = (desktop.height / 2) - (screenHeight / 2);
+    window.setPosition(windowPosition);
+    window.setVerticalSyncEnabled(true);
+    window.clear(sf::Color::Black);
+
+    tex.create(screenWidth, screenHeight);
+
+    rect.setSize(sf::Vector2f(pixelWidth, pixelHeight));
+    rect.setFillColor(sf::Color::White);
+}
+
+// The slowness was caused by calling window.display all the time in the main loop!!!
+// Changed it to only be called when we update the display - now the emulator is really fast!
+void mainLoop()
+{
+    bool done = false;
+
+    while (window.isOpen() && !done) {
+
+        runCPU();
+
+        if (dirtyDisplay) {
+            updateDisplay();
+            tex.display();
+            sf::Sprite spr(tex.getTexture());
+            spr.move(0, 0);
+            window.draw(spr);
+            window.display();
+        }
+
+
+        sf::Event event;
+
+        while (window.pollEvent(event)) {
+            if (event.type == sf::Event::Closed)
+                done = true;
+            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape)
+                done = true;
+            else if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::F1) {
+            }
+
+            if (event.type == sf::Event::KeyReleased) {
+                switch (event.key.code) {
+                    case sf::Keyboard::Num1:
+                        key[0x1] = 0;
+                        break;
+                    case sf::Keyboard::Num2:
+                        key[0x2] = 0;
+                        break;
+                    case sf::Keyboard::Num3:
+                        key[0x3] = 0;
+                        break;
+                    case sf::Keyboard::Num4:
+                        key[0xC] = 0;
+                        break;
+                    case sf::Keyboard::Q:
+                        key[0x4] = 0;
+                        break;
+                    case sf::Keyboard::W:
+                        key[0x5] = 0;
+                        break;
+                    case sf::Keyboard::E:
+                        key[0x6] = 0;
+                        break;
+                    case sf::Keyboard::R:
+                        key[0xD] = 0;
+                        break;
+                    case sf::Keyboard::A:
+                        key[0x7] = 0;
+                        break;
+                    case sf::Keyboard::S:
+                        key[0x8] = 0;
+                        break;
+                    case sf::Keyboard::D:
+                        key[0x9] = 0;
+                        break;
+                    case sf::Keyboard::F:
+                        key[0xE] = 0;
+                        break;
+                    case sf::Keyboard::Z:
+                        key[0xA] = 0;
+                        break;
+                    case sf::Keyboard::X:
+                        key[0x0] = 0;
+                        break;
+                    case sf::Keyboard::C:
+                        key[0xB] = 0;
+                        break;
+                    case sf::Keyboard::V:
+                        key[0xF] = 0;
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+
+            if (event.type == sf::Event::KeyPressed) {
+                switch (event.key.code) {
+                    case sf::Keyboard::Num1:
+                        key[0x1] = 1;
+                        break;
+                    case sf::Keyboard::Num2:
+                        key[0x2] = 1;
+                        break;
+                    case sf::Keyboard::Num3:
+                        key[0x3] = 1;
+                        break;
+                    case sf::Keyboard::Num4:
+                        key[0xC] = 1;
+                        break;
+                    case sf::Keyboard::Q:
+                        key[0x4] = 1;
+                        break;
+                    case sf::Keyboard::W:
+                        key[0x5] = 1;
+                        break;
+                    case sf::Keyboard::E:
+                        key[0x6] = 1;
+                        break;
+                    case sf::Keyboard::R:
+                        key[0xD] = 1;
+                        break;
+                    case sf::Keyboard::A:
+                        key[0x7] = 1;
+                        break;
+                    case sf::Keyboard::S:
+                        key[0x8] = 1;
+                        break;
+                    case sf::Keyboard::D:
+                        key[0x9] = 1;
+                        break;
+                    case sf::Keyboard::F:
+                        key[0xE] = 1;
+                        break;
+                    case sf::Keyboard::Z:
+                        key[0xA] = 1;
+                        break;
+                    case sf::Keyboard::X:
+                        key[0x0] = 1;
+                        break;
+                    case sf::Keyboard::C:
+                        key[0xB] = 1;
+                        break;
+                    case sf::Keyboard::V:
+                        key[0xF] = 1;
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+    //window.clear();
+
+    window.close();
+}
+
+int main(int argc, char *argv[])
+{
+    FILE *f;
+    int filesize = 0;
+    std::string arg;
+    
+    if(argc < 2) {
+        fmt::print("syntax: chipate [-d | -r] FILENAME\n");
+        return 0;
+    }
+        
+    arg = argv[1];
+
+    srand (time(NULL));
+    
+    initSFML();
+    initPixelData();
+
+    fmt::print("\n\n     CHIPIT \n\n");
+
+    fmt::print("[loading font sprites...]\n");
+    loadFont();
+
+    fmt::print("[loading file...]\n");
+
+    f = fopen(argv[1], "rb");
+    fseek(f, 0L, SEEK_END);
+    filesize = ftell(f);
+    fseek(f, 0L, SEEK_SET);
+    fread(&ram[0x200], filesize, 1, f);
+
+    //} else {
+    //    fmt::print("syntax: chipate [-d | -r] FILENAME\n");
+    //    return 0;
+    //}
+
+    
+    /*if(arg == "-d") {
+        fmt::print("[decoding opcodes...]\n");
+        dumpProgram(0x200, filesize);
+    } else if (arg == "-r") {*/
+        fmt::print("[running emulator...]\n");
+        initEmulator();
+        mainLoop();
+        //runEmulator(filesize);
+    //}
+
+    
+    fmt::print("[finished]\n\n");
+    return 0;
+}
+
+
 int executeOpcode()
 {
     opcodeBits bits;
@@ -197,8 +512,8 @@ int executeOpcode()
             if(bits.n.b == 0) {
                 if(bits.b.b == 0xE0) {       // Clear the screen
                     if (verbose) fmt::print("00E0: Clear the screen");
-                    for (auto it : pixels)
-                        it.pixel = false;
+                    for (auto it = pixels.begin(); it != pixels.end(); it++)
+                        it->pixel = false;
                     //window.clear(sf::Color::Black);
                     dirtyDisplay = true;
                 }
@@ -416,322 +731,3 @@ int executeOpcode()
 }
 
 
-
-void initEmulator()
-{
-    // TODO: set everything to zero / other initial value
-    pc = 0x200;
-    opcode = 0;
-    I = 0;
-    stackptr = 0;
-}
-
-void runCPU()
-{
-    if (verbose) fmt::print("{0:0>4x} - ", pc);
-
-    pc += executeOpcode();
-
-    // these should decrement at 60Hz (60 times per second) TODO: implement correct timing!
-    if(delaytimer > 0)
-        delaytimer--;
-    if(soundtimer > 0)
-        soundtimer--;
-}
-
-void loadFont()
-{
-    for (int i = 0; i < 16; i++) {
-        std::memcpy(&ram[i*5], font[i], 5*sizeof(u8));
-    }
-}
-
-// fmt::print("D{0:X}{1:X}{2:X}: Draw sprite at V{0:X},V{1:X} with height {2:d} pixels.", bits.n.b, bits.n.c, bits.n.d);
-// Dxyn - DRW Vx, Vy, nibble
-// Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision.
-// The interpreter reads n bytes from memory, starting at the address stored in I. These bytes are then displayed as sprites on
-// screen at coordinates (Vx, Vy). Sprites are XORed onto the existing screen. If this causes any pixels to be erased,
-// VF is set to 1, otherwise it is set to 0. If the sprite is positioned so part of it is outside the coordinates of the display,
-// it wraps around to the opposite side of the screen. 
-//
-// parts of drawSprite code borrowed from https://github.com/JamesGriffin/CHIP-8-Emulator/blob/master/src/chip8.cpp
-void drawSprite(u8 vx, u8 vy, u8 h)
-{
-    u8 x = v[vx];
-    u8 y = v[vy];
-
-    // TODO: Deal with coordinates out of bounds!
-    VF = 0;
-    for (int yl = 0; yl < h; yl++) {
-        u8 &pixel = ram[I + yl];
-        for (int xl = 0; xl < 8; xl++) {
-            if ((pixel & (0x80 >> xl))) {
-                int pos = (x+xl) + ((y+yl)*64);
-                if (pixels[pos].pixel) {
-                    VF = 1;
-                }
-                pixels[pos].pixel ^= 1;
-            }
-        }
-    }
-}
-
-/*
- * Render a pixel from Chip-8 memory to the actual screen
- */
-sf::RectangleShape rect;
-void renderPixel(int x, int y)
-{
-    rect.setPosition(x*pixelWidth, y*pixelHeight);
-    tex.draw(rect);
-}
-
-void updateDisplay()
-{
-    tex.clear(sf::Color::Black);
-
-    for (auto it : pixels) {
-        if (it.pixel) {
-            rect.setPosition(it.x, it.y);
-            tex.draw(rect);
-        }
-    }
-
-    // TODO: this IS the reason for the slowness!
-    // migrate to SDL?
-    //for (int y = 0; y < 32; y++) {
-        //for (int x = 0; x < 64; x++) {
-            //if (pixels[x + (y*64)] == 1) {
-                ////renderPixel(x, y);
-                //rect.setPosition(x*pixelWidth, y*pixelHeight);
-                //tex.draw(rect);
-            //}
-        //}
-    //}
-
-    dirtyDisplay = false;
-}
-
-void initSFML()
-{
-    sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
-
-    window.create(sf::VideoMode(screenWidth, screenHeight), "chipit");
-    sf::Vector2i windowPosition;
-    windowPosition.x = (desktop.width / 4) - (screenWidth / 2);
-    windowPosition.y = (desktop.height / 2) - (screenHeight / 2);
-    window.setPosition(windowPosition);
-    window.setVerticalSyncEnabled(true);
-    window.clear(sf::Color::Black);
-
-    tex.create(screenWidth, screenHeight);
-
-    rect.setSize(sf::Vector2f(pixelWidth, pixelHeight));
-    rect.setFillColor(sf::Color::White);
-}
-
-void mainLoop()
-{
-    bool done = false;
-
-    while (window.isOpen() && !done) {
-
-        runCPU();
-
-        if (dirtyDisplay) {
-            measureStart("updaatedisply");
-            updateDisplay();
-            measureEnd();
-            tex.display();
-            sf::Sprite spr(tex.getTexture());
-            spr.move(0, 0);
-            window.draw(spr);
-        }
-
-
-        window.display();
-
-        sf::Event event;
-
-        while (window.pollEvent(event)) {
-            if (event.type == sf::Event::Closed)
-                done = true;
-            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape)
-                done = true;
-            else if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::F1) {
-            }
-
-            if (event.type == sf::Event::KeyReleased) {
-                switch (event.key.code) {
-                    case sf::Keyboard::Num1:
-                        key[0x1] = 0;
-                        break;
-                    case sf::Keyboard::Num2:
-                        key[0x2] = 0;
-                        break;
-                    case sf::Keyboard::Num3:
-                        key[0x3] = 0;
-                        break;
-                    case sf::Keyboard::Num4:
-                        key[0xC] = 0;
-                        break;
-                    case sf::Keyboard::Q:
-                        key[0x4] = 0;
-                        break;
-                    case sf::Keyboard::W:
-                        key[0x5] = 0;
-                        break;
-                    case sf::Keyboard::E:
-                        key[0x6] = 0;
-                        break;
-                    case sf::Keyboard::R:
-                        key[0xD] = 0;
-                        break;
-                    case sf::Keyboard::A:
-                        key[0x7] = 0;
-                        break;
-                    case sf::Keyboard::S:
-                        key[0x8] = 0;
-                        break;
-                    case sf::Keyboard::D:
-                        key[0x9] = 0;
-                        break;
-                    case sf::Keyboard::F:
-                        key[0xE] = 0;
-                        break;
-                    case sf::Keyboard::Z:
-                        key[0xA] = 0;
-                        break;
-                    case sf::Keyboard::X:
-                        key[0x0] = 0;
-                        break;
-                    case sf::Keyboard::C:
-                        key[0xB] = 0;
-                        break;
-                    case sf::Keyboard::V:
-                        key[0xF] = 0;
-                        break;
-
-                    default:
-                        break;
-                }
-            }
-
-            if (event.type == sf::Event::KeyPressed) {
-                switch (event.key.code) {
-                    case sf::Keyboard::Num1:
-                        key[0x1] = 1;
-                        break;
-                    case sf::Keyboard::Num2:
-                        key[0x2] = 1;
-                        break;
-                    case sf::Keyboard::Num3:
-                        key[0x3] = 1;
-                        break;
-                    case sf::Keyboard::Num4:
-                        key[0xC] = 1;
-                        break;
-                    case sf::Keyboard::Q:
-                        key[0x4] = 1;
-                        break;
-                    case sf::Keyboard::W:
-                        key[0x5] = 1;
-                        break;
-                    case sf::Keyboard::E:
-                        key[0x6] = 1;
-                        break;
-                    case sf::Keyboard::R:
-                        key[0xD] = 1;
-                        break;
-                    case sf::Keyboard::A:
-                        key[0x7] = 1;
-                        break;
-                    case sf::Keyboard::S:
-                        key[0x8] = 1;
-                        break;
-                    case sf::Keyboard::D:
-                        key[0x9] = 1;
-                        break;
-                    case sf::Keyboard::F:
-                        key[0xE] = 1;
-                        break;
-                    case sf::Keyboard::Z:
-                        key[0xA] = 1;
-                        break;
-                    case sf::Keyboard::X:
-                        key[0x0] = 1;
-                        break;
-                    case sf::Keyboard::C:
-                        key[0xB] = 1;
-                        break;
-                    case sf::Keyboard::V:
-                        key[0xF] = 1;
-                        break;
-
-                    default:
-                        break;
-                }
-            }
-        }
-    }
-    //window.clear();
-
-    window.close();
-}
-
-int main(int argc, char *argv[])
-{
-    FILE *f;
-    int filesize = 0;
-    std::string arg;
-    
-    if(argc < 2) {
-        fmt::print("syntax: chipate [-d | -r] FILENAME\n");
-        return 0;
-    }
-        
-    arg = argv[1];
-
-    srand (time(NULL));
-    
-    initSFML();
-    initPixelData();
-
-    fmt::print("\n\n     CHIPIT \n\n");
-
-    fmt::print("[loading font sprites...]\n");
-    loadFont();
-
-    fmt::print("[loading file...]\n");
-
-    f = fopen(argv[1], "rb");
-    fseek(f, 0L, SEEK_END);
-    filesize = ftell(f);
-    fseek(f, 0L, SEEK_SET);
-    fread(&ram[0x200], filesize, 1, f);
-
-    //} else {
-    //    fmt::print("syntax: chipate [-d | -r] FILENAME\n");
-    //    return 0;
-    //}
-
-    
-    /*if(arg == "-d") {
-        fmt::print("[decoding opcodes...]\n");
-        dumpProgram(0x200, filesize);
-    } else if (arg == "-r") {*/
-        fmt::print("[running emulator...]\n");
-        initEmulator();
-        mainLoop();
-        //runEmulator(filesize);
-    //}
-
-    
-    fmt::print("[finished]\n\n");
-    return 0;
-}
-
-
-
-
-// vim: fdm=syntax
