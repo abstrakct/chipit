@@ -14,5 +14,5 @@ No support for Mega-/Super-CHIP-8 or other variants.
 Ideas for improvement:
 * Function pointers instead of giant switch statements
 * Better keymapping support
-* Add a debugger (i.e. a way to see the values of RAM and all registers live and step through the code).
-* Add a disassembler (kind of already implemented, in a way...)
+* (partially done) Add a debugger (i.e. a way to see the values of RAM and all registers live and step through the code).
+* (more or less done) Add a disassembler
